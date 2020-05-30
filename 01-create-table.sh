@@ -1,9 +1,9 @@
 #!/bin/bash
 
 aws dynamodb --endpoint-url http://localhost:8042 \
-	create-table --table-name product-info \
-	--attribute-definitions AttributeName=productId,AttributeType=S \
-	--key-schema AttributeName=productId,KeyType=HASH \
+	create-table --table-name person-info \
+	--attribute-definitions AttributeName=personId,AttributeType=S \
+	--key-schema AttributeName=personId,KeyType=HASH \
 	--provisioned-throughput ReadCapacityUnits=5,WriteCapacityUnits=5
 
 
@@ -21,10 +21,10 @@ aws dynamodb --endpoint-url http://localhost:8042 \
 
 # {
 #    "TableDescription": {
-#        "TableArn": "arn:aws:dynamodb:ddblocal:000000000000:table/product-info", 
+#        "TableArn": "arn:aws:dynamodb:ddblocal:000000000000:table/person-info", 
 #        "AttributeDefinitions": [
 #            {
-#                "AttributeName": "productId", 
+#                "AttributeName": "personId", 
 #                "AttributeType": "S"
 #            }
 #        ], 
@@ -36,12 +36,12 @@ aws dynamodb --endpoint-url http://localhost:8042 \
 #            "LastDecreaseDateTime": 0.0
 #        }, 
 #        "TableSizeBytes": 0, 
-#        "TableName": "product-info", 
+#        "TableName": "person-info", 
 #        "TableStatus": "ACTIVE", 
 #        "KeySchema": [
 #            {
 #                "KeyType": "HASH", 
-#                "AttributeName": "productId"
+#                "AttributeName": "personId"
 #            }
 #        ], 
 #        "ItemCount": 0, 

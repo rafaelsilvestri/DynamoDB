@@ -2,8 +2,8 @@
 
 aws dynamodb update-item \
 	--endpoint-url http://localhost:8042 \
-	--table-name product-info \
-  	--key '{"productId": {"S": "999"}}' \
+	--table-name person-info \
+  	--key '{"personId": {"S": "999"}}' \
   	--update-expression 'SET #isEligibleForPromotion = :eligibility' \
   	--expression-attribute-names '{"#isEligibleForPromotion": "isEligibleForPromotion", "#dateOfBirth": "dateOfBirth"}' \
   	--expression-attribute-values '{":eligibility": {"BOOL": true}, ":dateFrom": {"S": "1980-01-01"}}' \
