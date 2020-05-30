@@ -27,5 +27,9 @@ There are a few scripts that simulate a simple CRUD for a Product entity.
 [07-update-item-with-condition.sh](07-update-item-with-condition.sh)   
 [08-delete-item.sh](08-delete-item.sh)
 
+### Running through the browser
+You can also access the DynamoDB shell to execute commands and find many templates to start using.
+
+Open http://localhost:8042/shell/ and start palying
 
 ## References
