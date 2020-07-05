@@ -32,4 +32,8 @@ You can also access the DynamoDB shell to execute commands and find many templat
 
 Open http://localhost:8042/shell/ and start palying
 
+
 ## References
+
+[Amazon DynamoDB](https://aws.amazon.com/dynamodb)  
+[AWS SDK for Java v2](https://docs.aws.amazon.com/sdk-for-java/v2/developer-guide/examples-dynamodb.html)
