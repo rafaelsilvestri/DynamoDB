@@ -5,7 +5,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Repository;
-import software.amazon.awssdk.services.dynamodb.DynamoDbClient;
+import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
+import software.amazon.awssdk.services.dynamodb.DynamoDbAsyncClient;
 import software.amazon.awssdk.services.dynamodb.model.*;
 
 import javax.annotation.PostConstruct;
@@ -13,6 +15,8 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
 import java.util.stream.Collectors;
 
 /**
@@ -30,9 +34,9 @@ public class CustomerRepository {
     private static final String BODY_COLUMN = "body";
 
     private final ObjectMapper mapper;
-    private final DynamoDbClient client;
+    private final DynamoDbAsyncClient client;
 
-    public CustomerRepository(DynamoDbClient client, ObjectMapper mapper) {
+    public CustomerRepository(DynamoDbAsyncClient client, ObjectMapper mapper) {
         this.client = client;
         this.mapper = mapper;
     }
@@ -41,25 +45,29 @@ public class CustomerRepository {
      * Creating table on startup if not exists
      */
     @PostConstruct
-    public void createTableIfNeeded() {
-        boolean exists = client.listTables()
-                .tableNames()
-                .stream()
-                .anyMatch(TABLE_NAME::equalsIgnoreCase);
+    public void createTableIfNeeded() throws ExecutionException, InterruptedException {
+        CompletableFuture<CreateTableResponse> createTableResponse = client.listTables()
+                .thenCompose(response -> {
+                    boolean exists = response.tableNames().contains(TABLE_NAME);
+                    if (!exists) {
+                        return createTable();
+                    } else {
+                        LOGGER.info("Table " + TABLE_NAME + " already exists. Skipping table creation");
+                        return CompletableFuture.completedFuture(null);
+                    }
+                });
 
-        if (!exists)
-            createTable();
-        else
-            LOGGER.info("Table " + TABLE_NAME + " already exists. Skipping table creation");
+        //Wait in synchronous manner for table creation
+        createTableResponse.get();
     }
 
     /**
-     * Adds a new item to the customer table.
+     * Adds or Update an item to the customer table.
      *
      * @param customer entity
      * @throws JsonProcessingException
      */
-    public void save(Customer customer) throws JsonProcessingException {
+    public Mono<Customer> save(Customer customer) throws JsonProcessingException {
         Map<String, AttributeValue> item = new HashMap<>();
         item.put(ID_COLUMN, AttributeValue.builder().s(customer.getId().toString()).build());
         item.put(BODY_COLUMN, AttributeValue.builder().s(mapper.writeValueAsString(customer)).build());
@@ -69,7 +77,27 @@ public class CustomerRepository {
                 .item(item)
                 .build();
 
-        client.putItem(putItemRequest);
+        return Mono.fromCompletionStage(client.putItem(putItemRequest))
+                .map(putItemResponse -> putItemResponse.attributes())
+                .map(attributeValueMap -> customer);
+    }
+
+    /**
+     * Delete a single customer
+     *
+     * @param id customer id
+     * @return Void
+     */
+    public Mono<Void> delete(UUID id) {
+        Map<String, AttributeValue> item = new HashMap<>();
+        item.put(ID_COLUMN, AttributeValue.builder().s(id.toString()).build());
+        DeleteItemRequest deleteItemRequest = DeleteItemRequest.builder()
+                .tableName(TABLE_NAME)
+                .key(item)
+                .build();
+
+        return Mono.fromCompletionStage(client.deleteItem(deleteItemRequest))
+                .then();
     }
 
     /**
@@ -78,7 +106,7 @@ public class CustomerRepository {
      * @param id customer's id
      * @return customer entity.
      */
-    public Customer getById(UUID id) {
+    public Mono<Customer> getById(UUID id) {
         Map<String, AttributeValue> key = new HashMap<>();
         key.put(ID_COLUMN, AttributeValue.builder().s(id.toString()).build());
 
@@ -88,18 +116,17 @@ public class CustomerRepository {
                 .attributesToGet(BODY_COLUMN)
                 .build();
 
-        GetItemResponse getItemResponse = client.getItem(getRequest);
-        if (!getItemResponse.hasItem()) {
-            return null;
-        }
-        Map<String, AttributeValue> itemAttr = getItemResponse.item();
-        String body = itemAttr.get(BODY_COLUMN).s();
-        try {
-            return mapper.readValue(body, Customer.class);
-        } catch (JsonProcessingException e) {
-            LOGGER.error(e.getMessage(), e);
-            return null;
-        }
+        return Mono.fromCompletionStage(client.getItem(getRequest))
+                .map(GetItemResponse::item)
+                .map(item -> {
+                    try {
+                        Customer c = mapper.readValue(item.get(BODY_COLUMN).s(), Customer.class);
+                   return c;
+                    } catch (JsonProcessingException e) {
+                        LOGGER.error(e.getMessage(), e);
+                        return null;
+                    }
+                });
     }
 
     /**
@@ -107,25 +134,32 @@ public class CustomerRepository {
      *
      * @return a collection of customers
      */
-    public List<Customer> getAll() {
-        return client.scan(builder -> builder.tableName(TABLE_NAME))
-                .items()
-                .stream()
-                .map(map -> {
-                    try {
-                        return mapper.readValue(map.get(BODY_COLUMN).s(), Customer.class);
-                    } catch (JsonProcessingException e) {
-                        LOGGER.error(e.getMessage(), e);
-                        return null;
-                    }
-                })
-                .collect(Collectors.toList());
+    public Flux<Customer> getAll() {
+        ScanRequest scanRequest = ScanRequest
+                .builder()
+                .tableName(TABLE_NAME)
+                .build();
+
+        return Mono.fromCompletionStage(client.scan(scanRequest))
+                .map(ScanResponse::items)
+                .map(items -> items
+                        .stream()
+                        .map(item -> {
+                            try {
+                                return mapper.readValue(item.get(BODY_COLUMN).s(), Customer.class);
+                            } catch (JsonProcessingException e) {
+                                LOGGER.error(e.getMessage(), e);
+                                return null;
+                            }
+                        })
+                        .collect(Collectors.toList()))
+                .flatMapMany(Flux::fromIterable);
     }
 
     /**
      * helper method to create a new table.
      */
-    private void createTable() {
+    private CompletableFuture<CreateTableResponse> createTable() {
         LOGGER.info("Creating table " + TABLE_NAME);
         KeySchemaElement keySchemaElement = KeySchemaElement
                 .builder()
@@ -146,6 +180,6 @@ public class CustomerRepository {
                 .billingMode(BillingMode.PAY_PER_REQUEST)
                 .build();
 
-        client.createTable(request);
+        return client.createTable(request);
     }
 }
